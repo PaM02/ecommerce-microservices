@@ -14,7 +14,7 @@ public class OrderService {
     @Autowired
     private ProductClient productClient;  // ⭐ Injection du Feign Client
 
-    private List<Order> orders = new ArrayList<>();
+    private final List<Order> orders = new ArrayList<>();
     private Long nextId = 1L;
 
     public OrderService(ProductClient productClient) {
