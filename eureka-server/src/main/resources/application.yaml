@@ -1,0 +1,10 @@
+spring:
+  application:
+    name: eureka-server
+server:
+  port: 8761
+# Eureka ne doit pas s'enregistrer lui-même
+eureka:
+  client:
+    register-with-eureka: false
+    fetch-registry: false
