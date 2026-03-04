@@ -3,6 +3,7 @@ package com.ecommerce.orderservice.service;
 import com.ecommerce.orderservice.client.ProductClient;
 import com.ecommerce.orderservice.model.Order;
 import com.ecommerce.orderservice.model.Product;
+import lombok.AllArgsConstructor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -10,6 +11,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Service
+@AllArgsConstructor
 public class OrderService {
 
     @Autowired
