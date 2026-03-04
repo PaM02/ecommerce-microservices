@@ -2,6 +2,7 @@ package com.ecommerce.orderservice.service;
 
 import com.ecommerce.orderservice.client.ProductClient;
 import com.ecommerce.orderservice.model.Order;
+import com.ecommerce.orderservice.model.Product;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -17,9 +18,7 @@ public class OrderService {
     private final List<Order> orders = new ArrayList<>();
     private Long nextId = 1L;
 
-    public OrderService(ProductClient productClient) {
-        this.productClient = productClient;
-        // Quelques commandes par défaut
+    public OrderService() {
         orders.add(new Order(nextId++, 1L, "Ordinateur", 1, 999.99));
         orders.add(new Order(nextId++, 2L, "Souris", 2, 59.98));
     }
@@ -35,9 +34,17 @@ public class OrderService {
                 .orElse(null);
     }
 
-    public Order createOrder(Long productId, String productName, Integer quantity, Double price) {
-        Double totalPrice = price * quantity;
-        Order order = new Order(nextId++, productId, productName, quantity, totalPrice);
+    // ⭐ NOUVELLE MÉTHODE : Créer une commande en récupérant le produit
+    public Order createOrderFromProduct(Long productId, Integer quantity) {
+        // Appel au product-service via Feign
+        Product product = productClient.getProductById(productId);
+
+        if (product == null) {
+            throw new RuntimeException("Produit non trouvé !");
+        }
+
+        Double totalPrice = product.getPrice() * quantity;
+        Order order = new Order(nextId++, productId, product.getName(), quantity, totalPrice);
         orders.add(order);
         return order;
     }
