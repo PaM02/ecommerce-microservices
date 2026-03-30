@@ -14,6 +14,7 @@ spring:
           predicates:
             - Path=/api/products/**
 
+
         # Route pour order-service
         - id: order-service
           uri: lb://order-service

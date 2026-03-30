@@ -951,9 +951,122 @@ Requête : GET http://localhost:8080/api/products/1
 5. Gateway appelle : http://localhost:8081/api/products/1
 ```
 
+#### Note sur le Discovery Locator (optionnel)
+
+Dans le fichier `application.yml` reel du projet, vous verrez peut-etre cette configuration supplementaire :
+
+```yaml
+spring:
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: true              # Active la decouverte automatique via Eureka
+          lower-case-service-id: true # URLs en minuscules
+```
+
+**Cette partie est OPTIONNELLE !** Elle permet d'acceder aux services directement par leur **nom Eureka** dans l'URL, par exemple :
+
+```
+http://localhost:8080/product-service/api/products
+http://localhost:8080/order-service/api/orders
+```
+
+Au lieu de :
+
+```
+http://localhost:8080/api/products
+http://localhost:8080/api/orders
+```
+
+**Vous n'en avez PAS BESOIN** car les routes specifiques definies dans `routes:` suffisent largement. Le discovery locator est surtout utile en phase de debug rapide ou quand on a beaucoup de services et qu'on ne veut pas definir chaque route manuellement. En production, les routes explicites sont preferables car elles offrent plus de controle.
+
+> `lower-case-service-id: true` permet d'utiliser `product-service` en minuscules dans l'URL au lieu de `PRODUCT-SERVICE` (le nom en majuscules tel qu'enregistre dans Eureka).
+
 ---
 
-### 4.3 Vérifier le pom.xml
+### 4.3 Comment appeler les services via le Gateway (Important)
+
+L'API Gateway agit comme un **proxy intelligent**. Le principe est simple : **chaque route du Gateway correspond a un mapping vers un microservice**, et le chemin de l'URL reste identique.
+
+#### Le mecanisme en detail
+
+Dans `application.yml`, chaque route est definie ainsi :
+
+```yaml
+- id: product-service
+  uri: lb://product-service    # lb = load balancer via Eureka
+  predicates:
+    - Path=/api/products/**    # Pattern d'URL qui declenche cette route
+```
+
+Voici ce que chaque element signifie :
+
+| Element | Role | Exemple |
+|---------|------|---------|
+| `id` | Nom unique de la route (pour les logs/debug) | `product-service` |
+| `uri: lb://product-service` | Le service cible. `lb://` indique que le Gateway doit demander a Eureka l'adresse reelle du service, puis faire du load balancing si plusieurs instances existent | Eureka resout `product-service` → `localhost:8081` |
+| `Path=/api/products/**` | Le predicate : si l'URL de la requete commence par `/api/products/`, cette route est activee. `**` signifie "n'importe quoi apres" | `/api/products`, `/api/products/1`, `/api/products/search?name=pc` |
+
+#### La regle cle : le path est transmis tel quel
+
+Quand le Gateway recoit une requete, il **transmet le meme chemin** au microservice cible. Cela fonctionne parce que les controllers des microservices utilisent exactement les memes chemins que ceux declares dans les predicates du Gateway.
+
+**Exemple concret avec product-service :**
+
+1. Le `ProductController` dans product-service a l'annotation `@RequestMapping("/api/products")`
+2. Le Gateway a le predicate `Path=/api/products/**`
+3. Donc quand vous appelez `http://localhost:8080/api/products`, le Gateway :
+   - Detecte que `/api/products` correspond au predicate `/api/products/**`
+   - Demande a Eureka : "Ou est `product-service` ?"
+   - Eureka repond : `localhost:8081`
+   - Le Gateway transmet la requete a `http://localhost:8081/api/products` (meme chemin)
+
+#### Tableau recapitulatif : URLs via le Gateway vs acces direct
+
+| Action | Acces direct (sans Gateway) | Via le Gateway (port 8080) |
+|--------|---------------------------|---------------------------|
+| Lister tous les produits | `GET http://localhost:8081/api/products` | `GET http://localhost:8080/api/products` |
+| Obtenir un produit par ID | `GET http://localhost:8081/api/products/1` | `GET http://localhost:8080/api/products/1` |
+| Lister toutes les commandes | `GET http://localhost:8082/api/orders` | `GET http://localhost:8080/api/orders` |
+| Obtenir une commande par ID | `GET http://localhost:8082/api/orders/1` | `GET http://localhost:8080/api/orders/1` |
+| Creer une commande | `POST http://localhost:8082/api/orders/create?productId=1&quantity=2` | `POST http://localhost:8080/api/orders/create?productId=1&quantity=2` |
+
+**En resume** : il suffit de remplacer `localhost:<port_du_service>` par `localhost:8080` (le port du Gateway). Le reste de l'URL ne change pas.
+
+#### Pourquoi ca marche ?
+
+La correspondance est possible grace a la convention de nommage :
+
+```
+Controller du service         →  @RequestMapping("/api/products")
+Predicate du Gateway          →  Path=/api/products/**
+```
+
+Les deux utilisent le meme prefixe `/api/products`. Si demain vous ajoutez un nouveau service (par ex. `user-service` avec `@RequestMapping("/api/users")`), il suffit d'ajouter une route dans le Gateway :
+
+```yaml
+- id: user-service
+  uri: lb://user-service
+  predicates:
+    - Path=/api/users/**
+```
+
+Et vous pourrez appeler `http://localhost:8080/api/users` sans connaitre le port reel du service.
+
+#### Le role du Load Balancer (`lb://`)
+
+Le prefixe `lb://` dans l'URI est crucial. Il signifie que le Gateway ne va **pas** appeler une adresse en dur, mais va :
+
+1. Demander a **Eureka** toutes les instances disponibles du service
+2. Utiliser un **load balancer** (Round Robin par defaut) pour choisir une instance
+3. Router la requete vers cette instance
+
+Cela permet de lancer **plusieurs instances** du meme service (par ex. 3 instances de `product-service` sur les ports 8081, 8083, 8084) et le Gateway distribuera automatiquement les requetes entre elles.
+
+---
+
+### 4.4 Verifier le pom.xml
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -1020,7 +1133,7 @@ Requête : GET http://localhost:8080/api/products/1
 
 ---
 
-### 4.4 Test complet
+### 4.5 Test complet
 
 #### Ordre de démarrage
 
