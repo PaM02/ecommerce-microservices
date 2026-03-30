@@ -4,7 +4,6 @@ import com.ecommerce.orderservice.client.ProductClient;
 import com.ecommerce.orderservice.model.Order;
 import com.ecommerce.orderservice.model.Product;
 import lombok.AllArgsConstructor;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -14,7 +13,6 @@ import java.util.List;
 @AllArgsConstructor
 public class OrderService {
 
-    @Autowired
     private ProductClient productClient;  // ⭐ Injection du Feign Client
 
     private final List<Order> orders = new ArrayList<>();
@@ -24,6 +22,11 @@ public class OrderService {
         orders.add(new Order(nextId++, 1L, "Ordinateur", 1, 999.99));
         orders.add(new Order(nextId++, 2L, "Souris", 2, 59.98));
     }
+
+    public OrderService(ProductClient productClient) {
+        this.productClient = productClient;
+    }
+
 
     public List<Order> getAllOrders() {
         return orders;
