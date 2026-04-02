@@ -1,0 +1,25 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: true  # Active la découverte automatique via Eureka
+          lower-case-service-id: true  # URLs en minuscules
+      routes:
+        # Route pour product-service
+        - id: product-service
+          uri: lb://product-service  # lb = load balancer via Eureka
+          predicates:
+            - Path=/api/products/**
+
+
+        # Route pour order-service
+        - id: order-service
+          uri: lb://order-service
+          predicates:
+            - Path=/api/orders/**
