@@ -7,8 +7,9 @@
 3. [Phase 2 : Eureka Server - Service Discovery](#phase-2)
 4. [Phase 3 : Feign Client - Communication entre services](#phase-3)
 5. [Phase 4 : API Gateway - Point d'entrée unique](#phase-4)
-6. [Architecture finale](#architecture-finale)
-7. [Troubleshooting](#troubleshooting)
+6. [Phase 5 : Config Server - Centralisation de la configuration](#phase-5)
+7. [Architecture finale](#architecture-finale)
+8. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -1171,6 +1172,314 @@ GET http://localhost:8082/api/orders
 
 ---
 
+## ⚙️ Phase 5 : Config Server - Centralisation de la configuration {#phase-5}
+
+### Pourquoi un Config Server ?
+
+#### Probleme actuel
+
+Les memes configurations sont repetees dans chaque service :
+
+**product-service**, **order-service**, **api-gateway** ont tous :
+```properties
+eureka.client.service-url.defaultZone=http://localhost:8761/eureka/
+eureka.instance.hostname=localhost
+eureka.instance.prefer-ip-address=false
+```
+
+**Problemes** :
+1. Configuration repetee dans chaque service
+2. Pour changer l'adresse Eureka, il faut modifier 4 fichiers
+3. Besoin de redeployer tous les services pour une simple modification
+4. Risque d'oublier un service lors des modifications
+
+#### Solution : Config Server
+
+**Analogie** : Le Config Server est comme un serveur de fichiers partage.
+
+- Toutes les configurations sont dans **UN SEUL endroit** (depot Git)
+- Les services demandent leur configuration au demarrage
+- On peut changer la config sans redeployer (avec refresh)
+
+```
+Config Server (port 8888)
+    |
+config-repo/
+├── product-service.properties   (config specifique)
+├── order-service.properties     (config specifique)
+├── api-gateway.yaml             (config specifique)
+└── application.properties       (config commune a tous)
+
+Tous les services --> Demandent leur config au Config Server au demarrage
+```
+
+---
+
+### 5.1 Creer le Config Server
+
+#### Creation du projet
+
+**Sur Spring Initializr** :
+- **Artifact** : config-server
+- **Package name** : com.ecommerce.configserver
+- **Dependances** :
+  - Config Server
+  - Eureka Discovery Client
+
+#### Code : ConfigServerApplication.java
+
+```java
+package com.ecommerce.configserver;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cloud.config.server.EnableConfigServer;
+
+@SpringBootApplication
+@EnableConfigServer  // Active le Config Server
+public class ConfigServerApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(ConfigServerApplication.class, args);
+    }
+}
+```
+
+#### Configuration : application.yaml
+
+```yaml
+spring:
+  application:
+    name: config-server
+  profiles:
+    active: native
+  cloud:
+    config:
+      server:
+        git:
+          uri: file:///${user.dir}/../  # racine du projet global avec .git
+          search-paths: config-repo     # sous-dossier contenant les configs
+          #ou
+        #native:
+          # chemin vers le dossier config-repo
+          #search-locations: file:///${user.dir}/../config-repo/
+
+server:
+  port: 8888
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+  instance:
+    hostname: localhost
+    prefer-ip-address: false
+```
+
+**Point important sur la configuration Git** :
+
+Ce projet est un **monorepo** (un seul depot Git contenant tous les microservices). L'arborescence est :
+
+```
+ecommerce-microservices/        <-- .git est ici (racine du repo)
+├── config-server/
+├── config-repo/                <-- fichiers de configuration centralises
+├── eureka-server/
+├── product-service/
+├── order-service/
+└── api-gateway/
+```
+
+C'est pourquoi la configuration utilise :
+- `uri: file:///${user.dir}/../` : pointe vers le **repertoire parent** du config-server, c'est-a-dire la racine du projet qui contient le `.git`
+- `search-paths: config-repo` : indique de chercher les configs dans le sous-dossier `config-repo/`
+
+> `${user.dir}` correspond au repertoire de travail du processus Java, soit `config-server/`. En remontant d'un niveau (`../`), on arrive a la racine `ecommerce-microservices/` qui est le vrai depot Git.
+
+---
+
+### 5.2 Creer le depot de configurations
+
+Le dossier `config-repo/` a la racine du projet contient les fichiers de configuration centralises :
+
+#### 1. application.properties (configuration commune a tous les services)
+
+```properties
+# Configuration Eureka commune
+eureka.client.service-url.defaultZone=http://localhost:8761/eureka/
+eureka.instance.hostname=localhost
+eureka.instance.prefer-ip-address=false
+
+# Configuration Feign commune
+feign.client.config.default.connectTimeout=5000
+feign.client.config.default.readTimeout=5000
+```
+
+#### 2. product-service.properties
+
+```properties
+# Configuration specifique au product-service
+server.port=8081
+spring.application.name=product-service
+
+# Message personnalise (pour tester)
+app.message=Configuration chargee depuis Config Server pour Product Service
+```
+
+#### 3. order-service.properties
+
+```properties
+# Configuration specifique au order-service
+server.port=8082
+spring.application.name=order-service
+```
+
+#### 4. api-gateway.yaml
+
+```yaml
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true
+      routes:
+        - id: product-service
+          uri: lb://product-service
+          predicates:
+            - Path=/api/products/**
+
+        - id: order-service
+          uri: lb://order-service
+          predicates:
+            - Path=/api/orders/**
+```
+
+> **Rappel** : Le Config Server necessite que le dossier soit dans un **depot Git**. Comme `config-repo/` fait partie du monorepo `ecommerce-microservices/`, c'est deja le cas.
+
+---
+
+### 5.3 Modifier les services pour utiliser le Config Server
+
+#### 1. Ajouter les dependances dans pom.xml (pour chaque service)
+
+```xml
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-config</artifactId>
+</dependency>
+
+<dependency>
+    <groupId>org.springframework.cloud</groupId>
+    <artifactId>spring-cloud-starter-bootstrap</artifactId>
+</dependency>
+```
+
+#### 2. Creer bootstrap.properties (lu AVANT application.properties au demarrage)
+
+**product-service** : `src/main/resources/bootstrap.properties`
+```properties
+spring.application.name=product-service
+spring.cloud.config.uri=http://localhost:8888
+spring.profiles.active=default
+```
+
+**order-service** : `src/main/resources/bootstrap.properties`
+```properties
+spring.application.name=order-service
+spring.cloud.config.uri=http://localhost:8888
+spring.profiles.active=default
+```
+
+**api-gateway** : `src/main/resources/bootstrap.yaml`
+```yaml
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    config:
+      uri: http://localhost:8888
+  profiles:
+    active: default
+```
+
+#### 3. Simplifier les application.properties des services
+
+Les proprietes qui sont desormais dans le Config Server (Eureka, ports, etc.) peuvent etre supprimees des `application.properties` locaux. Le service les recevra du Config Server au demarrage.
+
+---
+
+### 5.4 Test du Config Server
+
+#### Ordre de demarrage (IMPORTANT - nouvel ordre !)
+
+1. **Config Server** (port 8888) - NOUVEAU - **avant tout le reste**
+2. **Eureka Server** (port 8761)
+3. **Product Service** (port 8081)
+4. **Order Service** (port 8082)
+5. **API Gateway** (port 8080)
+
+#### Test 1 : Verifier le Config Server directement
+
+Avant de demarrer les autres services :
+```bash
+# Config de product-service
+GET http://localhost:8888/product-service/default
+
+# Config de order-service
+GET http://localhost:8888/order-service/default
+
+# Config commune
+GET http://localhost:8888/application/default
+```
+
+Vous devriez voir les configurations au format JSON.
+
+#### Test 2 : Verifier les logs au demarrage des services
+
+Au demarrage de product-service, vous devriez voir dans les logs :
+```
+Fetching config from server at : http://localhost:8888
+Located environment: name=product-service, profiles=[default]
+```
+
+#### Test 3 : Endpoint de test (optionnel)
+
+Si vous ajoutez dans `ProductController` :
+```java
+@Value("${app.message:No config}")
+private String configMessage;
+
+@GetMapping("/config")
+public String getConfig() {
+    return configMessage;
+}
+```
+
+Alors `GET http://localhost:8081/api/products/config` retournera :
+```
+Configuration chargee depuis Config Server pour Product Service
+```
+
+---
+
+### 5.5 Avantages du Config Server
+
+| Avant (sans Config Server) | Apres (avec Config Server) |
+|----------------------------|----------------------------|
+| Modifier 4 fichiers pour changer l'URL Eureka | Modifier 1 seul fichier dans `config-repo/` |
+| Redeployer tous les services | Git commit + refresh ou redemarrage |
+| Risque d'oubli d'un service | Configuration centralisee et coherente |
+| Duplication partout | Un seul `application.properties` commun |
+
+---
+
 ## 🏗️ Architecture finale {#architecture-finale}
 
 ### Schéma de l'architecture
@@ -1207,6 +1516,20 @@ GET http://localhost:8082/api/orders
             │   (Service Discovery)        │
             │        Port 8761             │
             └──────────────────────────────┘
+
+            ┌──────────────────────────────┐
+            │      Config Server           │
+            │ (Configuration centralisée)  │
+            │        Port 8888             │
+            │              │               │
+            │       config-repo/           │
+            │  (application.properties,    │
+            │   product-service.properties,│
+            │   order-service.properties,  │
+            │   api-gateway.yaml)          │
+            └──────────────────────────────┘
+     Tous les services récupèrent leur config
+              au démarrage via Config Server
 ```
 
 ### Flux d'une requête
@@ -1249,10 +1572,11 @@ GET http://localhost:8082/api/orders
 
 ### Ordre de démarrage (IMPORTANT)
 
-1. **Eureka Server** (8761) - Toujours en premier
-2. **Product Service** (8081)
-3. **Order Service** (8082)
-4. **API Gateway** (8080)
+1. **Config Server** (8888) - Toujours en premier
+2. **Eureka Server** (8761)
+3. **Product Service** (8081)
+4. **Order Service** (8082)
+5. **API Gateway** (8080)
 
 ### Attendre l'enregistrement
 
@@ -1474,7 +1798,9 @@ kill -9 <PID>
 
 ### Au démarrage
 
-- [ ] Eureka Server démarre en premier
+- [ ] Config Server demarre en premier (port 8888)
+- [ ] Verifier : `GET http://localhost:8888/product-service/default` retourne du JSON
+- [ ] Eureka Server demarre ensuite (port 8761)
 - [ ] Attendre 10 secondes
 - [ ] Démarrer product-service
 - [ ] Attendre 30 secondes
@@ -1521,6 +1847,12 @@ kill -9 <PID>
 - Simplifie l'accès pour les clients
 - Permet d'ajouter sécurité, logs, rate limiting
 
+### Config Server
+- Centralisation de toutes les configurations
+- Un seul endroit pour les propriétés communes (Eureka, Feign, etc.)
+- Les services récupèrent leur config au démarrage via `bootstrap.properties`
+- Modification sans redéploiement (avec refresh)
+
 ---
 
 ## 📚 Ressources supplémentaires
@@ -1551,10 +1883,10 @@ Maintenant que vous maîtrisez les bases, vous pouvez explorer :
 - Chaque service a sa propre base
 - Spring Data JPA
 
-### 2. Configuration centralisée
-- Spring Cloud Config Server
-- Externaliser toutes les configurations
-- Changer la config sans redéployer
+### 2. ~~Configuration centralisée~~ (FAIT - Phase 5)
+- ~~Spring Cloud Config Server~~
+- ~~Externaliser toutes les configurations~~
+- ~~Changer la config sans redéployer~~
 
 ### 3. Résilience
 - Circuit Breaker avec Resilience4j
@@ -1585,7 +1917,7 @@ Maintenant que vous maîtrisez les bases, vous pouvez explorer :
 
 ### Bonnes pratiques
 
-1. **Toujours démarrer Eureka en premier**
+1. **Toujours demarrer Config Server en premier, puis Eureka**
 2. **Attendre l'enregistrement** (30 secondes) entre chaque service
 3. **Utiliser localhost** en développement (pas d'IP)
 4. **Un service = un port** (pas de conflit)
@@ -1594,7 +1926,7 @@ Maintenant que vous maîtrisez les bases, vous pouvez explorer :
 
 ### Pièges à éviter
 
-1. ❌ Démarrer les services avant Eureka
+1. ❌ Demarrer les services avant Config Server et Eureka
 2. ❌ Ne pas attendre l'enregistrement
 3. ❌ Mélanger les versions Spring Boot/Cloud
 4. ❌ Oublier @EnableDiscoveryClient
@@ -1624,8 +1956,11 @@ api-gateway (8080)
 + Routes dans application.yml
 + Point d'entrée unique
 
-# 5. Démarrage
-Eureka → Product → Order → Gateway
+# 5. Config Server
+config-server (8888) → Centralise toutes les configs
+
+# 6. Démarrage
+Config Server → Eureka → Product → Order → Gateway
 
 # 6. Test
 http://localhost:8080/api/products ✅
