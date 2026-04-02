@@ -2,16 +2,16 @@ package com.ecommerce.productservice.controller;
 
 import com.ecommerce.productservice.model.Product;
 import com.ecommerce.productservice.service.ProductService;
-import lombok.AllArgsConstructor;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
+import org.springframework.beans.factory.annotation.Value;
 import java.util.List;
 
 @RestController
-@AllArgsConstructor
+@RequiredArgsConstructor
 @RequestMapping("/api/products")
 public class ProductController {
 
@@ -28,6 +28,12 @@ public class ProductController {
         return productService.getProductById(id);
     }
 
+    @Value("${app.message:No config}")
+    private String configMessage;
 
+    @GetMapping("/config")
+    public String getConfig() {
+        return configMessage;
+    }
 
 }

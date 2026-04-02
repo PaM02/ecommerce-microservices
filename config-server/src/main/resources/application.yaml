@@ -1,12 +1,18 @@
 spring:
   application:
     name: config-server
+  profiles:
+    active: native
   cloud:
     config:
       server:
         git:
-          uri: file:///${user.dir}
-          search-paths: config-repo
+          uri: file:///${user.dir}/..      # remonte d’un niveau
+          search-paths: config-repo        # maintenant il pointe vers ../config-repo
+          #ou en local
+        #native:
+          # chemin vers le dossier config-repo
+         # search-locations: file:///${user.dir}/../config-repo/
 
 server:
   port: 8888
