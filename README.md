@@ -8,8 +8,9 @@
 4. [Phase 3 : Feign Client - Communication entre services](#phase-3)
 5. [Phase 4 : API Gateway - Point d'entrée unique](#phase-4)
 6. [Phase 5 : Config Server - Centralisation de la configuration](#phase-5)
-7. [Architecture finale](#architecture-finale)
-8. [Troubleshooting](#troubleshooting)
+7. [Phase 6 : Base de données - PostgreSQL avec Spring Data JPA](#phase-6)
+8. [Architecture finale](#architecture-finale)
+9. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -77,31 +78,24 @@ product-service/
 ```java
 package com.ecommerce.productservice.model;
 
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@Entity
+@AllArgsConstructor
+@NoArgsConstructor
+@Table(name = "products")
 public class Product {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id", nullable = false)
     private Long id;
     private String name;
     private Double price;
     private Integer stock;
-
-    public Product(Long id, String name, Double price, Integer stock) {
-        this.id = id;
-        this.name = name;
-        this.price = price;
-        this.stock = stock;
-    }
-
-    // Getters et Setters
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-    
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
-    
-    public Double getPrice() { return price; }
-    public void setPrice(Double price) { this.price = price; }
-    
-    public Integer getStock() { return stock; }
-    public void setStock(Integer stock) { this.stock = stock; }
 }
 ```
 
@@ -217,43 +211,24 @@ order-service/
 ```java
 package com.ecommerce.orderservice.model;
 
-import java.time.LocalDateTime;
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 
+@Data
+@AllArgsConstructor
+@Entity
+@Table(name = "orders")
+@NoArgsConstructor
 public class Order {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     private Long productId;
     private String productName;
     private Integer quantity;
     private Double totalPrice;
-    private LocalDateTime orderDate;
-
-    public Order(Long id, Long productId, String productName, Integer quantity, Double totalPrice) {
-        this.id = id;
-        this.productId = productId;
-        this.productName = productName;
-        this.quantity = quantity;
-        this.totalPrice = totalPrice;
-        this.orderDate = LocalDateTime.now();
-    }
-
-    // Getters et Setters
-    public Long getId() { return id; }
-    public void setId(Long id) { this.id = id; }
-    
-    public Long getProductId() { return productId; }
-    public void setProductId(Long productId) { this.productId = productId; }
-    
-    public String getProductName() { return productName; }
-    public void setProductName(String productName) { this.productName = productName; }
-    
-    public Integer getQuantity() { return quantity; }
-    public void setQuantity(Integer quantity) { this.quantity = quantity; }
-    
-    public Double getTotalPrice() { return totalPrice; }
-    public void setTotalPrice(Double totalPrice) { this.totalPrice = totalPrice; }
-    
-    public LocalDateTime getOrderDate() { return orderDate; }
-    public void setOrderDate(LocalDateTime orderDate) { this.orderDate = orderDate; }
 }
 ```
 
@@ -1480,6 +1455,420 @@ Configuration chargee depuis Config Server pour Product Service
 
 ---
 
+## 🗄️ Phase 6 : Base de données - PostgreSQL avec Spring Data JPA {#phase-6}
+
+### Pourquoi une base de données ?
+
+Jusqu'ici, nos services stockaient les données dans des `ArrayList` en mémoire. A chaque redemarrage, les donnees etaient perdues. Maintenant, on passe a PostgreSQL pour une persistance reelle.
+
+**Principe fondamental des microservices** : Chaque service a sa propre base de donnees.
+
+```
+product-service  →  Base "products_db"   (table : products)
+order-service    →  Base "orders_db"     (table : orders)
+```
+
+### 6.1 Prerequis
+
+- **Base de donnees** : PostgreSQL
+- **Outil de gestion** : pgAdmin
+
+### 6.2 Creer les bases de donnees
+
+Dans pgAdmin (Query Tool) :
+
+```sql
+CREATE DATABASE products_db;
+CREATE DATABASE orders_db;
+```
+
+### 6.3 Dependances ajoutees (product-service et order-service)
+
+Dans le `pom.xml` de chaque service :
+
+```xml
+<!-- Spring Data JPA -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-data-jpa</artifactId>
+</dependency>
+
+<!-- PostgreSQL Driver -->
+<dependency>
+    <groupId>org.postgresql</groupId>
+    <artifactId>postgresql</artifactId>
+    <scope>runtime</scope>
+</dependency>
+
+<!-- Validation -->
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-validation</artifactId>
+</dependency>
+```
+
+### 6.4 Configuration dans config-repo
+
+#### product-service.properties
+
+```properties
+# Serveur
+server.port=8081
+spring.application.name=product-service
+
+# PostgreSQL
+spring.datasource.url=jdbc:postgresql://localhost:5432/products_db
+spring.datasource.username=postgres
+spring.datasource.password=TON_MOT_DE_PASSE
+spring.datasource.driver-class-name=org.postgresql.Driver
+
+# JPA / Hibernate
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.show-sql=true
+spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect
+spring.jpa.properties.hibernate.format_sql=true
+
+# Message test
+app.message=Configuration chargee depuis Config Server pour Product Service
+```
+
+#### order-service.properties
+
+```properties
+# Serveur
+server.port=8082
+spring.application.name=order-service
+
+# PostgreSQL
+spring.datasource.url=jdbc:postgresql://localhost:5432/orders_db
+spring.datasource.username=postgres
+spring.datasource.password=TON_MOT_DE_PASSE
+spring.datasource.driver-class-name=org.postgresql.Driver
+
+# JPA / Hibernate
+spring.jpa.hibernate.ddl-auto=update
+spring.jpa.show-sql=true
+spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect
+spring.jpa.properties.hibernate.format_sql=true
+```
+
+### 6.5 Entites JPA (modeles mis a jour)
+
+Les classes `Product` et `Order` sont maintenant des entites JPA avec les annotations `@Entity`, `@Table`, `@Id`, `@GeneratedValue` et utilisent Lombok (`@Data`, `@AllArgsConstructor`, `@NoArgsConstructor`).
+
+> Voir les modeles mis a jour dans la Phase 1 ci-dessus.
+
+### 6.6 Repositories
+
+#### ProductRepository.java
+
+```java
+package com.ecommerce.productservice.repository;
+
+import com.ecommerce.productservice.model.Product;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface ProductRepository extends JpaRepository<Product, Long> {
+    // Spring Data JPA genere automatiquement toutes les methodes CRUD !
+    // findAll(), findById(), save(), deleteById() ... tout est deja la
+}
+```
+
+#### OrderRepository.java
+
+```java
+package com.ecommerce.orderservice.repository;
+
+import com.ecommerce.orderservice.model.Order;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface OrderRepository extends JpaRepository<Order, Long> {
+}
+```
+
+### 6.7 Services mis a jour
+
+#### ProductService.java
+
+```java
+package com.ecommerce.productservice.service;
+
+import com.ecommerce.productservice.model.Product;
+import com.ecommerce.productservice.repository.ProductRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+public class ProductService {
+
+    @Autowired
+    private ProductRepository productRepository;
+
+    public List<Product> getAllProducts() {
+        return productRepository.findAll();
+    }
+
+    public Product getProductById(Long id) {
+        return productRepository.findById(id).orElse(null);
+    }
+
+    public Product createProduct(Product product) {
+        return productRepository.save(product);
+    }
+
+    public void deleteProduct(Long id) {
+        productRepository.deleteById(id);
+    }
+}
+```
+
+#### OrderService.java
+
+```java
+package com.ecommerce.orderservice.service;
+
+import com.ecommerce.orderservice.client.ProductClient;
+import com.ecommerce.orderservice.model.Order;
+import com.ecommerce.orderservice.model.Product;
+import com.ecommerce.orderservice.repository.OrderRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+
+@Service
+public class OrderService {
+
+    @Autowired
+    private OrderRepository orderRepository;
+
+    @Autowired
+    private ProductClient productClient;
+
+    public List<Order> getAllOrders() {
+        return orderRepository.findAll();
+    }
+
+    public Order getOrderById(Long id) {
+        return orderRepository.findById(id).orElse(null);
+    }
+
+    public Order createOrderFromProduct(Long productId, Integer quantity) {
+        Product product = productClient.getProductById(productId);
+
+        if (product == null) {
+            throw new RuntimeException("Produit non trouve !");
+        }
+
+        Double totalPrice = product.getPrice() * quantity;
+        Order order = new Order(null, productId, product.getName(), quantity, totalPrice);
+
+        return orderRepository.save(order);
+    }
+}
+```
+
+### 6.8 Controllers mis a jour
+
+#### ProductController.java
+
+```java
+package com.ecommerce.productservice.controller;
+
+import com.ecommerce.productservice.model.Product;
+import com.ecommerce.productservice.service.ProductService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/products")
+public class ProductController {
+
+    @Autowired
+    private ProductService productService;
+
+    @GetMapping
+    public List<Product> getAllProducts() {
+        return productService.getAllProducts();
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<Product> getProductById(@PathVariable Long id) {
+        Product product = productService.getProductById(id);
+        if (product == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(product);
+    }
+
+    @PostMapping
+    public ResponseEntity<Product> createProduct(@RequestBody Product product) {
+        Product saved = productService.createProduct(product);
+        return ResponseEntity.ok(saved);
+    }
+
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteProduct(@PathVariable Long id) {
+        productService.deleteProduct(id);
+        return ResponseEntity.noContent().build();
+    }
+}
+```
+
+#### OrderController.java
+
+```java
+package com.ecommerce.orderservice.controller;
+
+import com.ecommerce.orderservice.model.Order;
+import com.ecommerce.orderservice.service.OrderService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/orders")
+public class OrderController {
+
+    @Autowired
+    private OrderService orderService;
+
+    @GetMapping
+    public List<Order> getAllOrders() {
+        return orderService.getAllOrders();
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<Order> getOrderById(@PathVariable Long id) {
+        Order order = orderService.getOrderById(id);
+        if (order == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(order);
+    }
+
+    @PostMapping("/create")
+    public ResponseEntity<Order> createOrder(@RequestParam Long productId,
+                                             @RequestParam Integer quantity) {
+        Order order = orderService.createOrderFromProduct(productId, quantity);
+        return ResponseEntity.ok(order);
+    }
+}
+```
+
+### 6.9 Structure mise a jour des services
+
+```
+product-service/
+└── src/main/java/com/ecommerce/productservice/
+    ├── ProductServiceApplication.java
+    ├── model/
+    │   └── Product.java          ← Entite JPA
+    ├── repository/
+    │   └── ProductRepository.java ← NOUVEAU
+    ├── controller/
+    │   └── ProductController.java ← CRUD complet
+    └── service/
+        └── ProductService.java    ← Utilise le Repository
+
+order-service/
+└── src/main/java/com/ecommerce/orderservice/
+    ├── OrderServiceApplication.java
+    ├── model/
+    │   ├── Order.java             ← Entite JPA
+    │   └── Product.java           ← DTO pour Feign
+    ├── repository/
+    │   └── OrderRepository.java   ← NOUVEAU
+    ├── client/
+    │   └── ProductClient.java
+    ├── controller/
+    │   └── OrderController.java
+    └── service/
+        └── OrderService.java      ← Utilise le Repository + Feign
+```
+
+### 6.10 Endpoints disponibles
+
+| Methode | URL | Description |
+|---------|-----|-------------|
+| GET | `/api/products` | Lister tous les produits |
+| GET | `/api/products/{id}` | Un produit par ID |
+| POST | `/api/products` | Creer un produit |
+| DELETE | `/api/products/{id}` | Supprimer un produit |
+| GET | `/api/orders` | Lister toutes les commandes |
+| GET | `/api/orders/{id}` | Une commande par ID |
+| POST | `/api/orders/create?productId=1&quantity=2` | Creer une commande |
+
+### 6.11 Test
+
+```bash
+# Creer un produit
+POST http://localhost:8081/api/products
+Content-Type: application/json
+{
+    "name": "Ordinateur",
+    "price": 999.99,
+    "stock": 10
+}
+
+# Lister les produits
+GET http://localhost:8081/api/products
+
+# Creer une commande (via API Gateway)
+POST http://localhost:8080/api/orders/create?productId=1&quantity=2
+
+# Lister les commandes
+GET http://localhost:8080/api/orders
+```
+
+### 6.12 Ce qui a change
+
+| Avant (Phase 1-5) | Apres (Phase 6) |
+|--------------------|------------------|
+| `ArrayList` en memoire | PostgreSQL avec Spring Data JPA |
+| Donnees perdues au redemarrage | Donnees persistees en base |
+| Pas de CRUD complet | GET, POST, DELETE fonctionnels |
+| Pas de Repository | `JpaRepository` genere le CRUD automatiquement |
+| Getters/Setters manuels | Lombok (`@Data`) simplifie le code |
+
+### 6.13 Verification dans pgAdmin
+
+Apres les tests, verifier dans pgAdmin :
+- `products_db` → Schemas → Tables → `products` (avec les donnees)
+- `orders_db` → Schemas → Tables → `orders` (avec les commandes)
+
+JPA cree automatiquement les tables grace a `spring.jpa.hibernate.ddl-auto=update`.
+
+### 6.14 Ordre de demarrage
+
+```
+1. Config Server (8888)
+2. Eureka Server (8761)
+3. Product Service (8081)
+4. Order Service (8082)
+5. API Gateway (8080)
+```
+
+Au demarrage de product-service et order-service, les logs doivent afficher :
+```
+HikariPool-1 - Starting...
+HikariPool-1 - Start completed.
+```
+Cela confirme que la connexion a PostgreSQL est etablie.
+
+---
+
 ## 🏗️ Architecture finale {#architecture-finale}
 
 ### Schéma de l'architecture
@@ -1959,10 +2348,15 @@ api-gateway (8080)
 # 5. Config Server
 config-server (8888) → Centralise toutes les configs
 
-# 6. Démarrage
+# 6. Base de donnees
+PostgreSQL + Spring Data JPA
+products_db (product-service) + orders_db (order-service)
+ArrayList → JpaRepository (persistance reelle)
+
+# 7. Demarrage
 Config Server → Eureka → Product → Order → Gateway
 
-# 6. Test
+# 8. Test
 http://localhost:8080/api/products ✅
 ```
 
