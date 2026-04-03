@@ -1,34 +1,30 @@
 package com.ecommerce.productservice.service;
 
 import com.ecommerce.productservice.model.Product;
-import lombok.AllArgsConstructor;
+import com.ecommerce.productservice.repository.ProductRepository;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
 import java.util.List;
 
 @Service
-@AllArgsConstructor
+@RequiredArgsConstructor
 public class ProductService {
-
-    // Liste simulée (en mémoire, pas de base de données pour l'instant)
-    private List<Product> products = new ArrayList<>();
-
-    public ProductService() {
-        // Quelques produits par défaut
-        products.add(new Product(1L, "Ordinateur", 999.99, 10));
-        products.add(new Product(2L, "Souris", 29.99, 50));
-        products.add(new Product(3L, "Clavier", 79.99, 30));
-    }
+    private final ProductRepository productRepository;
 
     public List<Product> getAllProducts() {
-        return products;
+        return productRepository.findAll();
     }
 
     public Product getProductById(Long id) {
-        return products.stream()
-                .filter(p -> p.getId().equals(id))
-                .findFirst()
-                .orElse(null);
+        return productRepository.findById(id).orElse(null);
+    }
+
+    public Product createProduct(Product product) {
+        return productRepository.save(product);
+    }
+
+    public void deleteProduct(Long id) {
+        productRepository.deleteById(id);
     }
 }
