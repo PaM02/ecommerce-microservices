@@ -1,8 +1,10 @@
 spring:
   application:
     name: config-server
-  profiles:
-    active: native
+  #on desactive ça car les fichier qui sont dans config-repo
+  #on les recupere dans git
+  #profiles:
+    #active: native
   cloud:
     config:
       server:
